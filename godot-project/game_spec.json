@@ -1,0 +1,78 @@
+{
+  "game": {
+    "name": "Cyber Kart Drift",
+    "type": "2D",
+    "genre": "racing-battle",
+    "description": "Fast-paced anti-gravity kart racing with drifting, weapons, and cyberpunk aesthetics"
+  },
+  "settings": {
+    "window": {"width": 1280, "height": 720},
+    "physics": {"gravity": 0}
+  },
+  "player": {
+    "name": "PlayerKart",
+    "health": 100,
+    "speed": 400,
+    "abilities": ["drift", "boost", "weapon", "special"]
+  },
+  "entities": {
+    "enemies": [
+      {
+        "name": "AIRacer",
+        "health": 100,
+        "speed": 380,
+        "damage": 20,
+        "behavior": "race-ai"
+      }
+    ],
+    "collectibles": [
+      {"name": "WeaponOrb", "value": 1},
+      {"name": "BoostPad", "value": 25},
+      {"name": "DataShard", "value": 50}
+    ],
+    "hazards": [
+      {"name": "EMPZone", "damage": 0, "effect": "disable_boost"},
+      {"name": "LaserBarrier", "damage": 25},
+      {"name": "GravityFlip", "damage": 0, "effect": "flip"}
+    ]
+  },
+  "kartClasses": [
+    {"name": "Speedster", "speed": 500, "accel": 300, "handling": 0.7, "boost": 1.2, "special": "quantum_boost"},
+    {"name": "Bruiser", "speed": 350, "accel": 200, "handling": 0.5, "boost": 0.8, "special": "armor_wall"},
+    {"name": "Balanced", "speed": 400, "accel": 250, "handling": 0.8, "boost": 1.0, "special": "pulse_shield"},
+    {"name": "Technical", "speed": 380, "accel": 280, "handling": 1.0, "boost": 1.1, "special": "teleport_dash"},
+    {"name": "Experimental", "speed": 450, "accel": 350, "handling": 0.6, "boost": 1.5, "special": "weapon_jam"}
+  ],
+  "weapons": {
+    "offensive": [
+      {"name": "PlasmaMissile", "damage": 30, "type": "homing"},
+      {"name": "EMPBlast", "damage": 0, "effect": "disable_boost", "duration": 3},
+      {"name": "ArcShot", "damage": 20, "type": "chain"},
+      {"name": "ShockwaveMine", "damage": 25, "type": "trap"},
+      {"name": "InfernoRocket", "damage": 40, "type": "straight"}
+    ],
+    "defensive": [
+      {"name": "PulseShield", "absorb": 2},
+      {"name": "ReflectorOrb", "reflect": true},
+      {"name": "DecoyDrone", "attract": true},
+      {"name": "NanoRepair", "heal": 30}
+    ]
+  },
+  "gameModes": ["grand_prix", "single_race", "time_trial", "battle_arena", "elimination", "drift_trial"],
+  "tracks": {
+    "neon_skyline": ["Night Boulevard", "Hologram Heights", "Sky Tunnel Sprint"],
+    "solar_canyon": ["Desert Driftway", "Canyon Rush", "Sandstorm Circuit"],
+    "frostbyte": ["Ice Loop Arena", "Frozen Highway", "Tundra Trials"],
+    "quantum_rift": ["Anomaly Zone", "Portal Circuit", "Gravity Flip Track"],
+    "overclocked_metro": ["Rail Runner", "Subway Surge", "Metro Madness"]
+  },
+  "logic": {
+    "winCondition": "finish_first",
+    "loseCondition": "health_zero",
+    "scoring": {
+      "pointsPerPosition": [100, 75, 50, 35, 25, 15, 10, 5],
+      "pointsPerDrift": 10,
+      "pointsPerKnockout": 50
+    }
+  }
+}
