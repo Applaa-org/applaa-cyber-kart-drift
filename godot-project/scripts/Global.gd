@@ -1,115 +1,231 @@
 extends Node
 
 # Game State
-enum GameState { MENU, RACING, PAUSED, VICTORY, DEFEAT, GARAGE, LOADING }
+enum GameState { MENU, RACING, PAUSED, RESULTS, GARAGE }
 var current_state: GameState = GameState.MENU
+
+# Race Settings
+var current_track: String = "neon_skyline_1"
+var current_mode: String = "single_race"
+var lap_count: int = 3
+var ai_count: int = 5
+var difficulty: String = "medium"
 
 # Player Data
 var player_name: String = "Racer"
+var player_level: int = 1
+var player_xp: int = 0
 var credits: int = 1000
 var holo_tokens: int = 50
 var data_shards: int = 10
-var xp: int = 0
-var level: int = 1
 
-# Current Race Data
-var score: int = 0
-var lap_count: int = 0
-var total_laps: int = 3
-var race_position: int = 1
-var race_time: float = 0.0
-var drift_score: int = 0
-var knockouts: int = 0
-
-# Selected Options
-var selected_kart_class: String = "Balanced"
-var selected_track: String = "neon_skyline_1"
-var selected_game_mode: String = "single_race"
-var ai_difficulty: String = "medium"
-var ai_racer_count: int = 5
+# Selected Kart
+var selected_kart_class: String = "balanced"
+var selected_kart_color: Color = Color(0.0, 0.8, 1.0)
+var selected_underglow: Color = Color(1.0, 0.0, 0.5)
+var selected_trail_type: int = 0
 
 # Kart Stats (base values modified by class)
-var kart_stats: Dictionary = {
-	"speed": 400.0,
-	"acceleration": 250.0,
-	"handling": 0.8,
-	"boost_power": 1.0,
-	"drift_efficiency": 1.0,
-	"max_health": 100
-}
-
-# Kart Classes Definition
 var kart_classes: Dictionary = {
-	"Speedster": {"speed": 500, "acceleration": 300, "handling": 0.7, "boost_power": 1.2, "drift_efficiency": 0.9, "max_health": 80, "special": "quantum_boost", "color": Color(0.0, 0.8, 1.0)},
-	"Bruiser": {"speed": 350, "acceleration": 200, "handling": 0.5, "boost_power": 0.8, "drift_efficiency": 0.7, "max_health": 150, "special": "armor_wall", "color": Color(1.0, 0.3, 0.2)},
-	"Balanced": {"speed": 400, "acceleration": 250, "handling": 0.8, "boost_power": 1.0, "drift_efficiency": 1.0, "max_health": 100, "special": "pulse_shield", "color": Color(0.5, 1.0, 0.5)},
-	"Technical": {"speed": 380, "acceleration": 280, "handling": 1.0, "boost_power": 1.1, "drift_efficiency": 1.3, "max_health": 90, "special": "teleport_dash", "color": Color(1.0, 0.8, 0.0)},
-	"Experimental": {"speed": 450, "acceleration": 350, "handling": 0.6, "boost_power": 1.5, "drift_efficiency": 1.1, "max_health": 70, "special": "weapon_jam", "color": Color(0.8, 0.2, 1.0)}
+	"speedster": {
+		"name": "Speedster",
+		"max_speed": 550.0,
+		"acceleration": 280.0,
+		"handling": 0.65,
+		"boost_power": 1.3,
+		"drift_bonus": 0.9,
+		"special": "quantum_boost",
+		"description": "Maximum velocity, minimum stability"
+	},
+	"bruiser": {
+		"name": "Bruiser",
+		"max_speed": 380.0,
+		"acceleration": 200.0,
+		"handling": 0.5,
+		"boost_power": 0.8,
+		"drift_bonus": 0.7,
+		"special": "armor_wall",
+		"description": "Heavy armor, devastating rams"
+	},
+	"balanced": {
+		"name": "Balanced",
+		"max_speed": 450.0,
+		"acceleration": 250.0,
+		"handling": 0.8,
+		"boost_power": 1.0,
+		"drift_bonus": 1.0,
+		"special": "pulse_shield",
+		"description": "Jack of all trades"
+	},
+	"technical": {
+		"name": "Technical",
+		"max_speed": 420.0,
+		"acceleration": 270.0,
+		"handling": 1.0,
+		"boost_power": 1.1,
+		"drift_bonus": 1.3,
+		"special": "teleport_dash",
+		"description": "Drift master, precision handling"
+	},
+	"experimental": {
+		"name": "Experimental",
+		"max_speed": 500.0,
+		"acceleration": 320.0,
+		"handling": 0.55,
+		"boost_power": 1.5,
+		"drift_bonus": 1.1,
+		"special": "weapon_jam",
+		"description": "Unstable but powerful"
+	}
 }
 
-# Unlocked Content
-var unlocked_karts: Array = ["Balanced", "Speedster"]
+# Weapons Data
+var weapons: Dictionary = {
+	"plasma_missile": {
+		"name": "Plasma Missile",
+		"type": "offensive",
+		"damage": 30,
+		"homing": true,
+		"speed": 600.0
+	},
+	"emp_blast": {
+		"name": "EMP Blast",
+		"type": "offensive",
+		"damage": 0,
+		"effect": "disable_boost",
+		"duration": 3.0,
+		"radius": 150.0
+	},
+	"arc_shot": {
+		"name": "Arc Shot",
+		"type": "offensive",
+		"damage": 20,
+		"chain_count": 3,
+		"chain_range": 200.0
+	},
+	"shockwave_mine": {
+		"name": "Shockwave Mine",
+		"type": "offensive",
+		"damage": 25,
+		"push_force": 400.0
+	},
+	"inferno_rocket": {
+		"name": "Inferno Rocket",
+		"type": "offensive",
+		"damage": 40,
+		"speed": 800.0,
+		"trail_damage": 10
+	},
+	"pulse_shield": {
+		"name": "Pulse Shield",
+		"type": "defensive",
+		"absorb_count": 2,
+		"duration": 5.0
+	},
+	"reflector_orb": {
+		"name": "Reflector Orb",
+		"type": "defensive",
+		"reflect": true,
+		"duration": 3.0
+	},
+	"decoy_drone": {
+		"name": "Decoy Drone",
+		"type": "defensive",
+		"attract_range": 300.0,
+		"duration": 4.0
+	},
+	"nano_repair": {
+		"name": "Nano Repair",
+		"type": "defensive",
+		"heal_amount": 30,
+		"heal_rate": 10.0
+	}
+}
+
+# Track Data
+var tracks: Dictionary = {
+	"neon_skyline_1": {
+		"name": "Night Boulevard",
+		"world": "Neon Skyline",
+		"difficulty": 1,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"neon_skyline_2": {
+		"name": "Hologram Heights",
+		"world": "Neon Skyline",
+		"difficulty": 2,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"neon_skyline_3": {
+		"name": "Sky Tunnel Sprint",
+		"world": "Neon Skyline",
+		"difficulty": 3,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"solar_canyon_1": {
+		"name": "Desert Driftway",
+		"world": "Solar Canyon",
+		"difficulty": 2,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"frostbyte_1": {
+		"name": "Ice Loop Arena",
+		"world": "Frostbyte",
+		"difficulty": 3,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"quantum_rift_1": {
+		"name": "Anomaly Zone",
+		"world": "Quantum Rift",
+		"difficulty": 4,
+		"laps": 3,
+		"best_time": 0.0
+	},
+	"metro_1": {
+		"name": "Rail Runner",
+		"world": "Overclocked Metro",
+		"difficulty": 3,
+		"laps": 3,
+		"best_time": 0.0
+	}
+}
+
+# Race Results (temporary storage)
+var race_results: Array = []
+var player_position: int = 0
+var player_race_time: float = 0.0
+var player_drift_score: int = 0
+var player_knockouts: int = 0
+
+# Unlocks
+var unlocked_karts: Array = ["balanced", "speedster"]
 var unlocked_tracks: Array = ["neon_skyline_1", "neon_skyline_2"]
-var unlocked_weapons: Array = ["PlasmaMissile", "PulseShield"]
-var unlocked_skins: Array = ["default"]
-
-# Customization
-var kart_customization: Dictionary = {
-	"body_kit": "default",
-	"underglow_color": Color(0.0, 1.0, 1.0),
-	"trail_effect": "neon",
-	"decal": "none",
-	"thruster_color": Color(1.0, 0.5, 0.0)
-}
+var unlocked_weapons: Array = ["plasma_missile", "pulse_shield"]
 
 # Settings
-var settings: Dictionary = {
-	"master_volume": 0.8,
-	"music_volume": 0.7,
-	"sfx_volume": 0.9,
-	"screen_shake": true,
-	"show_fps": false,
-	"control_scheme": "keyboard"
-}
+var music_volume: float = 0.8
+var sfx_volume: float = 1.0
+var screen_shake: bool = true
+var show_speedometer: bool = true
 
 # Signals
-signal score_changed(new_score: int)
-signal health_changed(new_health: int)
-signal boost_changed(new_boost: float)
-signal lap_completed(lap_number: int)
-signal race_finished(position: int)
-signal weapon_collected(weapon_name: String)
-signal credits_changed(new_credits: int)
+signal credits_changed(new_amount: int)
+signal xp_gained(amount: int)
+signal level_up(new_level: int)
+signal item_unlocked(item_type: String, item_id: String)
 
-func _ready():
-	load_kart_stats()
+func _ready() -> void:
+	load_game_data()
 
-func load_kart_stats():
-	if selected_kart_class in kart_classes:
-		var kart = kart_classes[selected_kart_class]
-		kart_stats = {
-			"speed": kart.speed,
-			"acceleration": kart.acceleration,
-			"handling": kart.handling,
-			"boost_power": kart.boost_power,
-			"drift_efficiency": kart.drift_efficiency,
-			"max_health": kart.max_health
-		}
+func get_kart_stats() -> Dictionary:
+	return kart_classes.get(selected_kart_class, kart_classes["balanced"])
 
-func select_kart_class(class_name: String):
-	if class_name in kart_classes:
-		selected_kart_class = class_name
-		load_kart_stats()
-
-func add_score(points: int):
-	score += points
-	score_changed.emit(score)
-
-func add_drift_score(points: int):
-	drift_score += points
-	add_score(points)
-
-func add_credits(amount: int):
+func add_credits(amount: int) -> void:
 	credits += amount
 	credits_changed.emit(credits)
 
@@ -120,54 +236,99 @@ func spend_credits(amount: int) -> bool:
 		return true
 	return false
 
-func add_xp(amount: int):
-	xp += amount
+func add_xp(amount: int) -> void:
+	player_xp += amount
+	xp_gained.emit(amount)
 	check_level_up()
 
-func check_level_up():
-	var xp_needed = level * 500
-	while xp >= xp_needed:
-		xp -= xp_needed
-		level += 1
-		xp_needed = level * 500
-		# Unlock rewards on level up
-		on_level_up()
+func check_level_up() -> void:
+	var xp_needed = player_level * 500
+	while player_xp >= xp_needed:
+		player_xp -= xp_needed
+		player_level += 1
+		level_up.emit(player_level)
+		xp_needed = player_level * 500
 
-func on_level_up():
-	add_credits(100 * level)
-	holo_tokens += 10
+func unlock_item(item_type: String, item_id: String) -> void:
+	match item_type:
+		"kart":
+			if item_id not in unlocked_karts:
+				unlocked_karts.append(item_id)
+		"track":
+			if item_id not in unlocked_tracks:
+				unlocked_tracks.append(item_id)
+		"weapon":
+			if item_id not in unlocked_weapons:
+				unlocked_weapons.append(item_id)
+	item_unlocked.emit(item_type, item_id)
 
-func complete_lap():
-	lap_count += 1
-	lap_completed.emit(lap_count)
-	if lap_count >= total_laps:
-		finish_race()
+func calculate_race_rewards(position: int, drift_score: int, knockouts: int) -> Dictionary:
+	var position_credits = [500, 350, 250, 175, 125, 75, 50, 25]
+	var base_credits = position_credits[mini(position - 1, 7)]
+	var drift_bonus = drift_score / 10
+	var knockout_bonus = knockouts * 50
+	var total_credits = base_credits + drift_bonus + knockout_bonus
+	
+	var xp_gain = (9 - position) * 50 + drift_score / 5 + knockouts * 25
+	
+	return {
+		"credits": total_credits,
+		"xp": xp_gain,
+		"holo_tokens": 1 if position <= 3 else 0,
+		"data_shards": knockouts
+	}
 
-func finish_race():
-	var position_points = [100, 75, 50, 35, 25, 15, 10, 5]
-	if race_position <= position_points.size():
-		add_score(position_points[race_position - 1])
-	add_xp(50 + (8 - race_position) * 10)
-	race_finished.emit(race_position)
+func reset_race_data() -> void:
+	race_results.clear()
+	player_position = 0
+	player_race_time = 0.0
+	player_drift_score = 0
+	player_knockouts = 0
 
-func reset_race():
-	score = 0
-	lap_count = 0
-	race_position = 1
-	race_time = 0.0
-	drift_score = 0
-	knockouts = 0
+func save_game_data() -> void:
+	var save_data = {
+		"player_name": player_name,
+		"player_level": player_level,
+		"player_xp": player_xp,
+		"credits": credits,
+		"holo_tokens": holo_tokens,
+		"data_shards": data_shards,
+		"selected_kart_class": selected_kart_class,
+		"unlocked_karts": unlocked_karts,
+		"unlocked_tracks": unlocked_tracks,
+		"unlocked_weapons": unlocked_weapons,
+		"tracks": tracks,
+		"music_volume": music_volume,
+		"sfx_volume": sfx_volume
+	}
+	
+	var file = FileAccess.open("user://savegame.dat", FileAccess.WRITE)
+	if file:
+		file.store_var(save_data)
+		file.close()
 
-func reset_all():
-	reset_race()
-	current_state = GameState.MENU
-
-func get_kart_color() -> Color:
-	if selected_kart_class in kart_classes:
-		return kart_classes[selected_kart_class].color
-	return Color(0.0, 1.0, 1.0)
-
-func get_special_ability() -> String:
-	if selected_kart_class in kart_classes:
-		return kart_classes[selected_kart_class].special
-	return "pulse_shield"
+func load_game_data() -> void:
+	if FileAccess.file_exists("user://savegame.dat"):
+		var file = FileAccess.open("user://savegame.dat", FileAccess.READ)
+		if file:
+			var save_data = file.get_var()
+			file.close()
+			
+			if save_data is Dictionary:
+				player_name = save_data.get("player_name", "Racer")
+				player_level = save_data.get("player_level", 1)
+				player_xp = save_data.get("player_xp", 0)
+				credits = save_data.get("credits", 1000)
+				holo_tokens = save_data.get("holo_tokens", 50)
+				data_shards = save_data.get("data_shards", 10)
+				selected_kart_class = save_data.get("selected_kart_class", "balanced")
+				unlocked_karts = save_data.get("unlocked_karts", ["balanced", "speedster"])
+				unlocked_tracks = save_data.get("unlocked_tracks", ["neon_skyline_1", "neon_skyline_2"])
+				unlocked_weapons = save_data.get("unlocked_weapons", ["plasma_missile", "pulse_shield"])
+				music_volume = save_data.get("music_volume", 0.8)
+				sfx_volume = save_data.get("sfx_volume", 1.0)
+				
+				var saved_tracks = save_data.get("tracks", {})
+				for track_id in saved_tracks:
+					if track_id in tracks:
+						tracks[track_id]["best_time"] = saved_tracks[track_id].get("best_time", 0.0)

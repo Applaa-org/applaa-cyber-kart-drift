@@ -1,0 +1,140 @@
+[gd_scene load_steps=2 format=3 uid="uid://garage001"]
+
+[ext_resource type="Script" path="res://scripts/Garage.gd" id="1"]
+
+[node name="Garage" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.03, 0.03, 0.08, 1)
+
+[node name="TopBar" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 20.0
+offset_top = 10.0
+offset_right = -20.0
+offset_bottom = 50.0
+grow_horizontal = 2
+
+[node name="BackButton" type="Button" parent="TopBar"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "BACK"
+
+[node name="TitleLabel" type="Label" parent="TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "GARAGE"
+horizontal_alignment = 1
+
+[node name="CreditsLabel" type="Label" parent="TopBar"]
+layout_mode = 2
+text = "Credits: 0"
+horizontal_alignment = 2
+
+[node name="LeftPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 70.0
+offset_right = 270.0
+offset_bottom = -70.0
+grow_vertical = 2
+
+[node name="ClassList" type="VBoxContainer" parent="LeftPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="KartPreviewViewport" type="SubViewportContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -150.0
+offset_right = 150.0
+offset_bottom = 150.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SubViewport" type="SubViewport" parent="KartPreviewViewport"]
+size = Vector2i(300, 300)
+
+[node name="KartPreview" type="Node2D" parent="KartPreviewViewport/SubViewport"]
+position = Vector2(150, 150)
+
+[node name="RightPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -320.0
+offset_top = 70.0
+offset_right = -20.0
+offset_bottom = -70.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="RightPanel"]
+layout_mode = 2
+
+[node name="StatsPanel" type="VBoxContainer" parent="RightPanel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CustomizePanel" type="VBoxContainer" parent="RightPanel/VBoxContainer"]
+layout_mode = 2
+
+[node name="ColorLabel" type="Label" parent="RightPanel/VBoxContainer/CustomizePanel"]
+layout_mode = 2
+text = "Kart Color"
+
+[node name="ColorPicker" type="ColorPickerButton" parent="RightPanel/VBoxContainer/CustomizePanel"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+color = Color(0, 0.8, 1, 1)
+
+[node name="GlowLabel" type="Label" parent="RightPanel/VBoxContainer/CustomizePanel"]
+layout_mode = 2
+text = "Underglow"
+
+[node name="GlowPicker" type="ColorPickerButton" parent="RightPanel/VBoxContainer/CustomizePanel"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+color = Color(1, 0, 0.5, 1)
+
+[node name="BottomBar" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -100.0
+offset_top = -60.0
+offset_right = 100.0
+offset_bottom = -15.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+
+[node name="SelectButton" type="Button" parent="BottomBar"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+text = "SELECT KART"

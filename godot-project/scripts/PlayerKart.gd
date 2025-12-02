@@ -1,535 +1,633 @@
 extends CharacterBody2D
 class_name PlayerKart
 
-# Movement Constants
-const MAX_SPEED: float = 600.0
-const ACCELERATION: float = 400.0
-const DECELERATION: float = 300.0
-const BRAKE_POWER: float = 600.0
-const TURN_SPEED: float = 3.5
-const DRIFT_TURN_MULTIPLIER: float = 1.8
-const DRIFT_ANGLE_THRESHOLD: float = 0.3
-const BOOST_MULTIPLIER: float = 1.8
-const BOOST_DURATION: float = 2.0
-const MAX_BOOST_METER: float = 100.0
-const DRIFT_BOOST_GAIN: float = 15.0
-
-# Hover Physics
-const HOVER_HEIGHT: float = 8.0
-const HOVER_FREQUENCY: float = 3.0
-var hover_offset: float = 0.0
-
-# State Variables
-var current_speed: float = 0.0
-var target_rotation: float = 0.0
-var is_drifting: bool = false
-var drift_direction: int = 0  # -1 left, 0 none, 1 right
-var drift_angle: float = 0.0
-var drift_time: float = 0.0
-
-# Boost System
-var boost_meter: float = 0.0
-var is_boosting: bool = false
-var boost_timer: float = 0.0
-
-# Health System
-var health: int = 100
-var max_health: int = 100
-var is_invulnerable: bool = false
-var invulnerable_timer: float = 0.0
-
-# Weapon System
-var current_weapon: String = ""
-var weapon_charges: int = 0
-var special_meter: float = 0.0
-var max_special_meter: float = 100.0
-
-# Race Data
-var checkpoint_index: int = 0
-var lap_progress: float = 0.0
-var race_position: int = 1
-
-# Visual References
-var body_sprite: Node2D
-var thruster_particles: GPUParticles2D
-var drift_particles: GPUParticles2D
-var boost_particles: GPUParticles2D
-var trail_line: Line2D
-
-# Effects
-var screen_shake_intensity: float = 0.0
-var current_tilt: float = 0.0
-
 # Signals
 signal health_changed(new_health: int)
 signal boost_changed(new_boost: float)
-signal weapon_changed(weapon_name: String, charges: int)
 signal special_changed(new_special: float)
-signal kart_destroyed()
-signal checkpoint_passed(index: int)
-signal lap_completed()
+signal weapon_changed(weapon_name: String)
+signal lap_completed(lap_number: int)
+signal race_finished(position: int)
+signal drift_score_added(score: int)
 
-func _ready():
-	# Load stats from Global
-	max_health = Global.kart_stats.max_health
-	health = max_health
-	
-	# Setup collision
-	add_to_group("player")
+# Kart Stats (loaded from Global)
+var max_speed: float = 450.0
+var acceleration: float = 250.0
+var handling: float = 0.8
+var boost_power: float = 1.0
+var drift_bonus: float = 1.0
+var special_ability: String = "pulse_shield"
+
+# Current State
+var current_speed: float = 0.0
+var steering_angle: float = 0.0
+var health: int = 100
+var max_health: int = 100
+
+# Boost System
+var boost_meter: float = 0.0
+var max_boost: float = 100.0
+var boost_drain_rate: float = 30.0
+var boost_gain_rate: float = 15.0
+var is_boosting: bool = false
+var boost_disabled: bool = false
+var boost_disabled_timer: float = 0.0
+
+# Drift System
+var is_drifting: bool = false
+var drift_direction: int = 0  # -1 left, 1 right, 0 none
+var drift_angle: float = 0.0
+var drift_time: float = 0.0
+var drift_score_accumulator: float = 0.0
+var total_drift_score: int = 0
+
+# Special Ability
+var special_meter: float = 0.0
+var max_special: float = 100.0
+var special_active: bool = false
+var special_duration: float = 0.0
+
+# Weapon System
+var current_weapon: String = ""
+var weapon_count: int = 0
+
+# Race State
+var current_lap: int = 0
+var current_checkpoint: int = 0
+var race_position: int = 1
+var race_time: float = 0.0
+var is_racing: bool = false
+var finished_race: bool = false
+
+# Physics
+var hover_offset: float = 0.0
+var hover_time: float = 0.0
+var tilt_angle: float = 0.0
+
+# Visual references
+@onready var kart_body: Node2D = $KartBody
+@onready var thruster_left: Node2D = $KartBody/ThrusterLeft
+@onready var thruster_right: Node2D = $KartBody/ThrusterRight
+@onready var drift_particles_left: GPUParticles2D = $DriftParticlesLeft
+@onready var drift_particles_right: GPUParticles2D = $DriftParticlesRight
+@onready var boost_particles: GPUParticles2D = $BoostParticles
+@onready var trail_left: Line2D = $TrailLeft
+@onready var trail_right: Line2D = $TrailRight
+
+func _ready() -> void:
+	load_kart_stats()
 	add_to_group("karts")
-	
-	# Create visual components
-	setup_visuals()
+	add_to_group("player")
 
-func setup_visuals():
-	# Create kart body
-	body_sprite = Node2D.new()
-	body_sprite.name = "KartBody"
-	add_child(body_sprite)
-	
-	# Main body shape
-	var body_shape = Polygon2D.new()
-	body_shape.polygon = PackedVector2Array([
-		Vector2(-20, -12), Vector2(25, -8), Vector2(30, 0),
-		Vector2(25, 8), Vector2(-20, 12), Vector2(-25, 8),
-		Vector2(-25, -8)
-	])
-	body_shape.color = Global.get_kart_color()
-	body_sprite.add_child(body_shape)
-	
-	# Cockpit
-	var cockpit = Polygon2D.new()
-	cockpit.polygon = PackedVector2Array([
-		Vector2(-5, -6), Vector2(10, -4), Vector2(10, 4), Vector2(-5, 6)
-	])
-	cockpit.color = Color(0.1, 0.1, 0.2, 0.9)
-	body_sprite.add_child(cockpit)
-	
-	# Neon trim
-	var trim = Line2D.new()
-	trim.points = PackedVector2Array([
-		Vector2(-20, -12), Vector2(25, -8), Vector2(30, 0),
-		Vector2(25, 8), Vector2(-20, 12), Vector2(-25, 8),
-		Vector2(-25, -8), Vector2(-20, -12)
-	])
-	trim.width = 2.0
-	trim.default_color = Color(0.0, 1.0, 1.0, 0.8)
-	body_sprite.add_child(trim)
-	
-	# Thrusters
-	var left_thruster = create_thruster(Vector2(-25, -8))
-	var right_thruster = create_thruster(Vector2(-25, 8))
-	body_sprite.add_child(left_thruster)
-	body_sprite.add_child(right_thruster)
-	
-	# Trail line
-	trail_line = Line2D.new()
-	trail_line.width = 4.0
-	trail_line.default_color = Color(Global.get_kart_color(), 0.5)
-	trail_line.name = "Trail"
-	add_child(trail_line)
+func load_kart_stats() -> void:
+	var stats = Global.get_kart_stats()
+	max_speed = stats.max_speed
+	acceleration = stats.acceleration
+	handling = stats.handling
+	boost_power = stats.boost_power
+	drift_bonus = stats.drift_bonus
+	special_ability = stats.special
 
-func create_thruster(pos: Vector2) -> Node2D:
-	var thruster = Node2D.new()
-	thruster.position = pos
-	
-	var thruster_glow = Polygon2D.new()
-	thruster_glow.polygon = PackedVector2Array([
-		Vector2(0, -3), Vector2(-8, 0), Vector2(0, 3)
-	])
-	thruster_glow.color = Global.kart_customization.thruster_color
-	thruster.add_child(thruster_glow)
-	
-	return thruster
-
-func _physics_process(delta: float):
-	if Global.current_state != Global.GameState.RACING:
+func _physics_process(delta: float) -> void:
+	if not is_racing or finished_race:
 		return
 	
-	# Update hover effect
-	hover_offset = sin(Time.get_ticks_msec() * 0.001 * HOVER_FREQUENCY) * HOVER_HEIGHT
+	race_time += delta
+	
+	# Update timers
+	update_timers(delta)
 	
 	# Handle input
 	handle_input(delta)
 	
-	# Update boost
-	update_boost(delta)
+	# Update physics
+	update_movement(delta)
 	
-	# Update drift
-	update_drift(delta)
-	
-	# Update invulnerability
-	update_invulnerability(delta)
-	
-	# Apply movement
-	apply_movement(delta)
-	
-	# Update visuals
+	# Update visual effects
 	update_visuals(delta)
 	
-	# Update trail
-	update_trail()
-	
+	# Move the kart
 	move_and_slide()
 
-func handle_input(delta: float):
-	# Acceleration
-	var accel_input = Input.get_axis("brake", "accelerate")
+func update_timers(delta: float) -> void:
+	if boost_disabled:
+		boost_disabled_timer -= delta
+		if boost_disabled_timer <= 0:
+			boost_disabled = false
 	
-	if accel_input > 0:
-		var accel_rate = Global.kart_stats.acceleration
-		if is_boosting:
-			accel_rate *= BOOST_MULTIPLIER
-		current_speed = move_toward(current_speed, get_max_speed(), accel_rate * delta)
-	elif accel_input < 0:
-		current_speed = move_toward(current_speed, -get_max_speed() * 0.3, BRAKE_POWER * delta)
-	else:
-		current_speed = move_toward(current_speed, 0, DECELERATION * delta)
-	
+	if special_active:
+		special_duration -= delta
+		if special_duration <= 0:
+			deactivate_special()
+
+func handle_input(delta: float) -> void:
 	# Steering
 	var steer_input = Input.get_axis("move_left", "move_right")
-	var turn_rate = TURN_SPEED * Global.kart_stats.handling
+	var target_steering = steer_input * handling * 3.0
+	steering_angle = lerp(steering_angle, target_steering, delta * 5.0)
 	
-	if is_drifting:
-		turn_rate *= DRIFT_TURN_MULTIPLIER
+	# Acceleration / Brake
+	if Input.is_action_pressed("accelerate"):
+		current_speed += acceleration * delta
+	elif Input.is_action_pressed("brake"):
+		current_speed -= acceleration * 1.5 * delta
+	else:
+		# Natural deceleration
+		current_speed = move_toward(current_speed, 0, acceleration * 0.3 * delta)
 	
-	if abs(current_speed) > 10:
-		var speed_factor = clamp(abs(current_speed) / get_max_speed(), 0.3, 1.0)
-		rotation += steer_input * turn_rate * speed_factor * delta * sign(current_speed)
+	# Apply boost
+	var effective_max_speed = max_spee<applaa-write path="godot-project/scripts/PlayerKart.gd" description="Player-controlled kart with full physics, drifting, boost, and weapons">
+extends CharacterBody2D
+class_name PlayerKart
+
+# Signals
+signal health_changed(new_health: int)
+signal boost_changed(new_boost: float)
+signal special_changed(new_special: float)
+signal weapon_changed(weapon_name: String)
+signal lap_completed(lap_number: int)
+signal race_finished(position: int)
+signal drift_score_added(score: int)
+
+# Kart Stats (loaded from Global)
+var max_speed: float = 450.0
+var acceleration: float = 250.0
+var handling: float = 0.8
+var boost_power: float = 1.0
+var drift_bonus: float = 1.0
+var special_ability: String = "pulse_shield"
+
+# Current State
+var current_speed: float = 0.0
+var steering_angle: float = 0.0
+var health: int = 100
+var max_health: int = 100
+
+# Boost System
+var boost_meter: float = 0.0
+var max_boost: float = 100.0
+var boost_drain_rate: float = 30.0
+var boost_gain_rate: float = 15.0
+var is_boosting: bool = false
+var boost_disabled: bool = false
+var boost_disabled_timer: float = 0.0
+
+# Drift System
+var is_drifting: bool = false
+var drift_direction: int = 0  # -1 left, 1 right, 0 none
+var drift_angle: float = 0.0
+var drift_time: float = 0.0
+var drift_score_accumulator: float = 0.0
+var total_drift_score: int = 0
+
+# Special Ability
+var special_meter: float = 0.0
+var max_special: float = 100.0
+var special_active: bool = false
+var special_duration: float = 0.0
+
+# Weapon System
+var current_weapon: String = ""
+var weapon_count: int = 0
+
+# Race State
+var current_lap: int = 0
+var current_checkpoint: int = 0
+var race_position: int = 1
+var race_time: float = 0.0
+var is_racing: bool = false
+var finished_race: bool = false
+
+# Physics
+var hover_offset: float = 0.0
+var hover_time: float = 0.0
+var tilt_angle: float = 0.0
+
+# Visual references
+@onready var kart_body: Node2D = $KartBody
+@onready var thruster_left: Node2D = $KartBody/ThrusterLeft
+@onready var thruster_right: Node2D = $KartBody/ThrusterRight
+@onready var drift_particles_left: GPUParticles2D = $DriftParticlesLeft
+@onready var drift_particles_right: GPUParticles2D = $DriftParticlesRight
+@onready var boost_particles: GPUParticles2D = $BoostParticles
+@onready var trail_left: Line2D = $TrailLeft
+@onready var trail_right: Line2D = $TrailRight
+
+func _ready() -> void:
+	load_kart_stats()
+	add_to_group("karts")
+	add_to_group("player")
+
+func load_kart_stats() -> void:
+	var stats = Global.get_kart_stats()
+	max_speed = stats.max_speed
+	acceleration = stats.acceleration
+	handling = stats.handling
+	boost_power = stats.boost_power
+	drift_bonus = stats.drift_bonus
+	special_ability = stats.special
+
+func _physics_process(delta: float) -> void:
+	if not is_racing or finished_race:
+		return
+	
+	race_time += delta
+	
+	# Update timers
+	update_timers(delta)
+	
+	# Handle input
+	handle_input(delta)
+	
+	# Update physics
+	update_movement(delta)
+	
+	# Update visual effects
+	update_visuals(delta)
+	
+	# Move the kart
+	move_and_slide()
+
+func update_timers(delta: float) -> void:
+	if boost_disabled:
+		boost_disabled_timer -= delta
+		if boost_disabled_timer <= 0:
+			boost_disabled = false
+	
+	if special_active:
+		special_duration -= delta
+		if special_duration <= 0:
+			deactivate_special()
+
+func handle_input(delta: float) -> void:
+	# Steering
+	var steer_input = Input.get_axis("move_left", "move_right")
+	var target_steering = steer_input * handling * 3.0
+	steering_angle = lerp(steering_angle, target_steering, delta * 5.0)
+	
+	# Acceleration / Brake
+	if Input.is_action_pressed("accelerate"):
+		current_speed += acceleration * delta
+	elif Input.is_action_pressed("brake"):
+		current_speed -= acceleration * 1.5 * delta
+	else:
+		# Natural deceleration
+		current_speed = move_toward(current_speed, 0, acceleration * 0.3 * delta)
+	
+	# Apply boost
+	var effective_max_speed = max_speed
+	if is_boosting and not boost_disabled:
+		effective_max_speed *= (1.0 + boost_power * 0.5)
+	
+	current_speed = clamp(current_speed, -max_speed * 0.3, effective_max_speed)
 	
 	# Drift input
-	if Input.is_action_just_pressed("drift") and abs(current_speed) > get_max_speed() * 0.5:
-		start_drift(sign(steer_input) if steer_input != 0 else 1)
-	elif Input.is_action_just_released("drift") and is_drifting:
+	if Input.is_action_pressed("drift") and abs(steer_input) > 0.3 and current_speed > max_speed * 0.4:
+		start_drift(sign(steer_input))
+	elif Input.is_action_just_released("drift") or abs(steer_input) < 0.1:
 		end_drift()
 	
 	# Boost input
-	if Input.is_action_just_pressed("boost") and boost_meter >= 30:
+	if Input.is_action_pressed("boost") and boost_meter > 0 and not boost_disabled:
 		activate_boost()
+	else:
+		deactivate_boost()
 	
 	# Weapon input
-	if Input.is_action_just_pressed("fire_weapon") and current_weapon != "" and weapon_charges > 0:
+	if Input.is_action_just_pressed("fire_weapon") and current_weapon != "" and weapon_count > 0:
 		fire_weapon()
 	
 	# Special ability input
-	if Input.is_action_just_pressed("special_ability") and special_meter >= max_special_meter:
+	if Input.is_action_just_pressed("special_ability") and special_meter >= max_special:
 		activate_special()
 
-func get_max_speed() -> float:
-	var speed = Global.kart_stats.speed
+func update_movement(delta: float) -> void:
+	# Calculate movement direction based on rotation
+	var move_direction = Vector2.RIGHT.rotated(rotation)
+	
+	# Apply steering (reduced when drifting)
+	var steer_modifier = 0.6 if is_drifting else 1.0
+	rotation += steering_angle * steer_modifier * delta
+	
+	# Apply drift angle
+	if is_drifting:
+		drift_angle = lerp(drift_angle, drift_direction * 0.4, delta * 3.0)
+		drift_time += delta
+		
+		# Accumulate drift score based on angle and speed
+		var drift_score_rate = abs(drift_angle) * (current_speed / max_speed) * 100.0 * drift_bonus
+		drift_score_accumulator += drift_score_rate * delta
+		
+		# Build boost meter while drifting
+		boost_meter = min(boost_meter + boost_gain_rate * delta * drift_bonus, max_boost)
+		boost_changed.emit(boost_meter)
+		
+		# Build special meter
+		special_meter = min(special_meter + 5.0 * delta, max_special)
+		special_changed.emit(special_meter)
+	else:
+		drift_angle = lerp(drift_angle, 0.0, delta * 5.0)
+	
+	# Apply velocity
+	var drift_offset = Vector2.RIGHT.rotated(rotation + drift_angle * 0.5)
+	velocity = move_direction.lerp(drift_offset, abs(drift_angle)) * current_speed
+	
+	# Boost drain
 	if is_boosting:
-		speed *= BOOST_MULTIPLIER * Global.kart_stats.boost_power
-	return speed
+		boost_meter = max(0, boost_meter - boost_drain_rate * delta)
+		boost_changed.emit(boost_meter)
+		if boost_meter <= 0:
+			deactivate_boost()
 
-func start_drift(direction: int):
-	is_drifting = true
-	drift_direction = direction
-	drift_time = 0.0
-	drift_angle = 0.0
-	AudioManager.play_drift_sound(0)
+func update_visuals(delta: float) -> void:
+	# Hover effect
+	hover_time += delta * 3.0
+	hover_offset = sin(hover_time) * 3.0
+	if kart_body:
+		kart_body.position.y = hover_offset
+	
+	# Tilt based on steering
+	tilt_angle = lerp(tilt_angle, -steering_angle * 0.1, delta * 8.0)
+	if kart_body:
+		kart_body.rotation = tilt_angle
+	
+	# Drift particles
+	if drift_particles_left and drift_particles_right:
+		drift_particles_left.emitting = is_drifting and drift_direction < 0
+		drift_particles_right.emitting = is_drifting and drift_direction > 0
+	
+	# Boost particles
+	if boost_particles:
+		boost_particles.emitting = is_boosting
+	
+	# Update trails
+	update_trails()
+	
+	# Thruster glow based on speed
+	var speed_ratio = current_speed / max_speed
+	if thruster_left and thruster_right:
+		var thruster_color = Color(0.0, 0.8, 1.0).lerp(Color(1.0, 0.5, 0.0), speed_ratio)
+		if is_boosting:
+			thruster_color = Color(1.0, 0.3, 0.0)
+		thruster_left.modulate = thruster_color
+		thruster_right.modulate = thruster_color
 
-func end_drift():
+func update_trails() -> void:
+	if not trail_left or not trail_right:
+		return
+	
+	var trail_color = Global.selected_underglow
+	if is_boosting:
+		trail_color = Color(1.0, 0.5, 0.0)
+	elif is_drifting:
+		trail_color = Color(0.0, 1.0, 0.5)
+	
+	trail_left.default_color = trail_color
+	trail_right.default_color = trail_color
+	
+	# Add points to trails
+	var left_pos = to_local(global_position + Vector2(-15, 0).rotated(rotation))
+	var right_pos = to_local(global_position + Vector2(15, 0).rotated(rotation))
+	
+	if trail_left.get_point_count() > 50:
+		trail_left.remove_point(0)
+	if trail_right.get_point_count() > 50:
+		trail_right.remove_point(0)
+	
+	if current_speed > 50:
+		trail_left.add_point(left_pos)
+		trail_right.add_point(right_pos)
+
+func start_drift(direction: int) -> void:
+	if not is_drifting:
+		is_drifting = true
+		drift_direction = direction
+		drift_time = 0.0
+		drift_score_accumulator = 0.0
+		AudioManager.play_drift_sound()
+
+func end_drift() -> void:
 	if is_drifting:
 		is_drifting = false
 		
-		# Award boost based on drift time
-		var drift_bonus = drift_time * DRIFT_BOOST_GAIN * Global.kart_stats.drift_efficiency
-		boost_meter = clamp(boost_meter + drift_bonus, 0, MAX_BOOST_METER)
-		boost_changed.emit(boost_meter)
-		
 		# Award drift score
-		var drift_points = int(drift_time * 10 * abs(drift_angle) * 10)
-		Global.add_drift_score(drift_points)
-		
-		AudioManager.stop_drift_sound(0)
-		drift_direction = 0
-
-func update_drift(delta: float):
-	if is_drifting:
-		drift_time += delta
-		var steer_input = Input.get_axis("move_left", "move_right")
-		drift_angle = lerp(drift_angle, steer_input * 0.5, delta * 3.0)
-		
-		# Visual drift angle on kart
-		current_tilt = lerp(current_tilt, drift_direction * 15.0, delta * 5.0)
-		
-		# Continuous boost gain while drifting
-		var gain_rate = 5.0 * Global.kart_stats.drift_efficiency
-		boost_meter = clamp(boost_meter + gain_rate * delta, 0, MAX_BOOST_METER)
-		boost_changed.emit(boost_meter)
-		
-		# Build special meter while drifting
-		special_meter = clamp(special_meter + delta * 5.0, 0, max_special_meter)
-		special_changed.emit(special_meter)
-	else:
-		current_tilt = lerp(current_tilt, 0.0, delta * 8.0)
-
-func activate_boost():
-	if boost_meter >= 30:
-		is_boosting = true
-		boost_timer = BOOST_DURATION
-		boost_meter -= 30
-		boost_changed.emit(boost_meter)
-		AudioManager.play_boost_sound(0)
-		screen_shake_intensity = 5.0
-
-func update_boost(delta: float):
-	if is_boosting:
-		boost_timer -= delta
-		if boost_timer <= 0:
-			is_boosting = false
-			boost_timer = 0
-
-func apply_movement(delta: float):
-	var direction = Vector2.RIGHT.rotated(rotation)
-	velocity = direction * current_speed
-	
-	# Apply hover offset to visual only
-	if body_sprite:
-		body_sprite.position.y = hover_offset
-
-func update_visuals(delta: float):
-	if body_sprite:
-		# Apply tilt during drift
-		body_sprite.rotation = deg_to_rad(current_tilt)
-		
-		# Update thruster intensity based on speed
-		var speed_ratio = abs(current_speed) / get_max_speed()
-		for child in body_sprite.get_children():
-			if child is Node2D and child.get_child_count() > 0:
-				var thruster_glow = child.get_child(0)
-				if thruster_glow is Polygon2D:
-					var intensity = 0.5 + speed_ratio * 0.5
-					if is_boosting:
-						intensity = 1.5
-					thruster_glow.color.a = intensity
-
-func update_trail():
-	if trail_line:
-		# Add current position to trail
-		var trail_pos = global_position - Vector2.RIGHT.rotated(rotation) * 25
-		
-		if trail_line.points.size() == 0:
-			trail_line.add_point(trail_pos)
-		else:
-			trail_line.add_point(trail_pos)
+		var final_drift_score = int(drift_score_accumulator)
+		if final_drift_score > 10:
+			total_drift_score += final_drift_score
+			drift_score_added.emit(final_drift_score)
 			
-			# Limit trail length
-			if trail_line.points.size() > 20:
-				trail_line.remove_point(0)
+			# Bonus boost for long drifts
+			if drift_time > 2.0:
+				boost_meter = min(boost_meter + 20.0, max_boost)
+				boost_changed.emit(boost_meter)
 		
-		# Update trail color based on state
-		if is_boosting:
-			trail_line.default_color = Color(1.0, 0.5, 0.0, 0.8)
-			trail_line.width = 6.0
-		elif is_drifting:
-			trail_line.default_color = Color(0.0, 1.0, 1.0, 0.6)
-			trail_line.width = 5.0
-		else:
-			trail_line.default_color = Color(Global.get_kart_color(), 0.4)
-			trail_line.width = 3.0
+		drift_direction = 0
+		drift_score_accumulator = 0.0
 
-func collect_weapon(weapon_name: String, charges: int = 1):
-	current_weapon = weapon_name
-	weapon_charges = charges
-	weapon_changed.emit(current_weapon, weapon_charges)
-	AudioManager.play_pickup_sound()
+func activate_boost() -> void:
+	if not is_boosting and boost_meter > 0 and not boost_disabled:
+		is_boosting = true
+		AudioManager.play_boost_sound()
 
-func fire_weapon():
-	if current_weapon == "" or weapon_charges <= 0:
+func deactivate_boost() -> void:
+	is_boosting = false
+
+func activate_special() -> void:
+	if special_meter >= max_special and not special_active:
+		special_active = true
+		special_meter = 0
+		special_changed.emit(special_meter)
+		
+		match special_ability:
+			"quantum_boost":
+				# Massive speed boost
+				special_duration = 3.0
+				current_speed = max_speed * 1.5
+				boost_meter = max_boost
+			"armor_wall":
+				# Invincibility + ram damage
+				special_duration = 4.0
+			"pulse_shield":
+				# Shield that absorbs damage
+				special_duration = 5.0
+			"teleport_dash":
+				# Short teleport forward
+				position += Vector2.RIGHT.rotated(rotation) * 200
+				special_duration = 0.1
+			"weapon_jam":
+				# Disable nearby enemy weapons
+				special_duration = 4.0
+				jam_nearby_weapons()
+
+func deactivate_special() -> void:
+	special_active = false
+
+func jam_nearby_weapons() -> void:
+	var nearby_karts = get_tree().get_nodes_in_group("karts")
+	for kart in nearby_karts:
+		if kart != self and kart.has_method("disable_weapons"):
+			var distance = global_position.distance_to(kart.global_position)
+			if distance < 300:
+				kart.disable_weapons(3.0)
+
+func fire_weapon() -> void:
+	if current_weapon == "" or weapon_count <= 0:
 		return
 	
-	weapon_charges -= 1
+	weapon_count -= 1
 	AudioManager.play_weapon_sound(current_weapon)
 	
-	# Spawn weapon projectile based on type
-	match current_weapon:
-		"PlasmaMissile":
-			spawn_plasma_missile()
-		"EMPBlast":
-			spawn_emp_blast()
-		"ArcShot":
-			spawn_arc_shot()
-		"ShockwaveMine":
-			spawn_mine()
-		"InfernoRocket":
-			spawn_inferno_rocket()
-		"PulseShield":
-			activate_shield()
-		"ReflectorOrb":
-			activate_reflector()
-		"DecoyDrone":
-			spawn_decoy()
-		"NanoRepair":
-			activate_repair()
+	var weapon_data = Global.weapons.get(current_weapon, {})
 	
-	if weapon_charges <= 0:
+	# Spawn weapon projectile or effect
+	match current_weapon:
+		"plasma_missile":
+			spawn_missile(weapon_data)
+		"emp_blast":
+			spawn_emp_blast(weapon_data)
+		"arc_shot":
+			spawn_arc_shot(weapon_data)
+		"shockwave_mine":
+			spawn_mine(weapon_data)
+		"inferno_rocket":
+			spawn_rocket(weapon_data)
+		"pulse_shield":
+			activate_shield(weapon_data)
+		"reflector_orb":
+			activate_reflector(weapon_data)
+		"decoy_drone":
+			spawn_decoy(weapon_data)
+		"nano_repair":
+			activate_repair(weapon_data)
+	
+	if weapon_count <= 0:
 		current_weapon = ""
-	weapon_changed.emit(current_weapon, weapon_charges)
+	
+	weapon_changed.emit(current_weapon)
 
-func spawn_plasma_missile():
-	# Missile spawning handled by weapon system
-	var missile_data = {
-		"position": global_position + Vector2.RIGHT.rotated(rotation) * 30,
-		"rotation": rotation,
-		"type": "homing",
-		"damage": 30,
-		"owner": self
-	}
-	get_tree().call_group("weapon_system", "spawn_projectile", missile_data)
-
-func spawn_emp_blast():
-	var blast_data = {
-		"position": global_position,
-		"radius": 150,
-		"effect": "disable_boost",
-		"duration": 3.0,
-		"owner": self
-	}
-	get_tree().call_group("weapon_system", "spawn_area_effect", blast_data)
-
-func spawn_arc_shot():
-	var arc_data = {
-		"position": global_position + Vector2.RIGHT.rotated(rotation) * 30,
-		"rotation": rotation,
-		"type": "chain",
-		"damage": 20,
-		"chain_count": 3,
-		"owner": self
-	}
-	get_tree().call_group("weapon_system", "spawn_projectile", arc_data)
-
-func spawn_mine():
-	var mine_data = {
-		"position": global_position - Vector2.RIGHT.rotated(rotation) * 30,
-		"type": "mine",
-		"damage": 25,
-		"owner": self
-	}
-	get_tree().call_group("weapon_system", "spawn_trap", mine_data)
-
-func spawn_inferno_rocket():
-	var rocket_data = {
-		"position": global_position + Vector2.RIGHT.rotated(rotation) * 30,
-		"rotation": rotation,
-		"type": "straight",
-		"damage": 40,
-		"speed": 800,
-		"owner": self
-	}
-	get_tree().call_group("weapon_system", "spawn_projectile", rocket_data)
-
-func activate_shield():
-	is_invulnerable = true
-	invulnerable_timer = 3.0
-	# Visual shield effect
-	modulate = Color(0.5, 0.8, 1.0, 0.8)
-
-func activate_reflector():
-	# Reflector orb logic
+func spawn_missile(data: Dictionary) -> void:
+	# Would instantiate missile scene
 	pass
 
-func spawn_decoy():
-	# Decoy drone logic
+func spawn_emp_blast(data: Dictionary) -> void:
+	# EMP effect in radius
+	var nearby_karts = get_tree().get_nodes_in_group("karts")
+	for kart in nearby_karts:
+		if kart != self:
+			var distance = global_position.distance_to(kart.global_position)
+			if distance < data.get("radius", 150.0):
+				if kart.has_method("apply_emp"):
+					kart.apply_emp(data.get("duration", 3.0))
+
+func spawn_arc_shot(data: Dictionary) -> void:
+	# Chain lightning effect
 	pass
 
-func activate_repair():
-	var heal_amount = 30
-	health = clamp(health + heal_amount, 0, max_health)
+func spawn_mine(data: Dictionary) -> void:
+	# Drop mine behind kart
+	pass
+
+func spawn_rocket(data: Dictionary) -> void:
+	# Straight-line rocket
+	pass
+
+func activate_shield(data: Dictionary) -> void:
+	# Temporary shield
+	pass
+
+func activate_reflector(data: Dictionary) -> void:
+	# Reflect projectiles
+	pass
+
+func spawn_decoy(data: Dictionary) -> void:
+	# Spawn decoy drone
+	pass
+
+func activate_repair(data: Dictionary) -> void:
+	# Heal over time
+	var heal_amount = data.get("heal_amount", 30)
+	health = mini(health + heal_amount, max_health)
 	health_changed.emit(health)
 
-func activate_special():
-	special_meter = 0
-	special_changed.emit(special_meter)
-	
-	var ability = Global.get_special_ability()
-	match ability:
-		"quantum_boost":
-			# Massive speed boost
-			boost_meter = MAX_BOOST_METER
-			activate_boost()
-			boost_timer = BOOST_DURATION * 2
-		"armor_wall":
-			# Temporary invulnerability
-			is_invulnerable = true
-			invulnerable_timer = 5.0
-			modulate = Color(1.0, 0.5, 0.3, 0.8)
-		"pulse_shield":
-			# Shield + knockback
-			activate_shield()
-			# Push nearby karts away
-		"teleport_dash":
-			# Teleport forward
-			global_position += Vector2.RIGHT.rotated(rotation) * 200
-		"weapon_jam":
-			# Disable nearby enemy weapons
-			get_tree().call_group("ai_karts", "jam_weapons", 3.0)
+func pickup_weapon(weapon_id: String) -> void:
+	current_weapon = weapon_id
+	weapon_count = 1
+	if weapon_id in ["pulse_shield", "nano_repair"]:
+		weapon_count = 2
+	weapon_changed.emit(current_weapon)
 
-func update_invulnerability(delta: float):
-	if is_invulnerable:
-		invulnerable_timer -= delta
-		if invulnerable_timer <= 0:
-			is_invulnerable = false
-			modulate = Color.WHITE
-
-func take_damage(amount: int, source: Node = null):
-	if is_invulnerable:
-		return
+func take_damage(amount: int, source: Node = null) -> void:
+	if special_active and special_ability == "armor_wall":
+		return  # Invincible during armor wall
 	
 	health -= amount
 	health_changed.emit(health)
 	
-	# Brief invulnerability
-	is_invulnerable = true
-	invulnerable_timer = 0.5
-	
-	# Screen shake
-	screen_shake_intensity = amount * 0.3
-	
-	# Flash red
-	modulate = Color(1.0, 0.3, 0.3)
-	var tween = create_tween()
-	tween.tween_property(self, "modulate", Color.WHITE, 0.2)
+	AudioManager.play_impact_sound("explosion")
 	
 	if health <= 0:
-		on_destroyed()
+		handle_destruction()
 
-func on_destroyed():
-	health = 0
-	kart_destroyed.emit()
-	# Respawn logic handled by race manager
-
-func hit_boost_pad(boost_amount: float):
-	boost_meter = clamp(boost_meter + boost_amount, 0, MAX_BOOST_METER)
+func handle_destruction() -> void:
+	# Respawn after short delay
+	health = max_health
+	health_changed.emit(health)
+	current_speed = 0
+	boost_meter = 0
 	boost_changed.emit(boost_meter)
 	
-	# Auto-activate small boost
-	if not is_boosting:
-		is_boosting = true
-		boost_timer = 0.5
+	# Would trigger respawn animation
 
-func pass_checkpoint(checkpoint_id: int):
-	checkpoint_index = checkpoint_id
-	checkpoint_passed.emit(checkpoint_id)
+func apply_emp(duration: float) -> void:
+	boost_disabled = true
+	boost_disabled_timer = duration
+	deactivate_boost()
 
-func complete_lap():
-	Global.complete_lap()
-	lap_completed.emit()
+func disable_weapons(duration: float) -> void:
+	# Weapon jam effect
+	pass
 
-func get_race_progress() -> float:
-	# Calculate progress based on checkpoints and position
-	return lap_progress + Global.lap_count
+func hit_boost_pad(boost_amount: float) -> void:
+	boost_meter = min(boost_meter + boost_amount, max_boost)
+	boost_changed.emit(boost_meter)
+	current_speed = min(current_speed + 100, max_speed * 1.2)
 
-func apply_effect(effect_name: String, duration: float):
-	match effect_name:
-		"disable_boost":
-			boost_meter = 0
-			boost_changed.emit(boost_meter)
-			# Prevent boost for duration
-		"slow":
-			# Reduce max speed temporarily
-			pass
-		"spin":
-			# Force spin out
-			var spin_tween = create_tween()
-			spin_tween.tween_property(self, "rotation", rotation + PI * 4, 1.0)
+func pass_checkpoint(checkpoint_id: int) -> void:
+	if checkpoint_id == current_checkpoint + 1 or (checkpoint_id == 0 and current_checkpoint == -1):
+		current_checkpoint = checkpoint_id
+
+func complete_lap() -> void:
+	current_lap += 1
+	current_checkpoint = 0
+	lap_completed.emit(current_lap)
+	AudioManager.play_lap_complete()
+	
+	# Add bonus boost and special on lap completion
+	boost_meter = min(boost_meter + 30, max_boost)
+	boost_changed.emit(boost_meter)
+	special_meter = min(special_meter + 20, max_special)
+	special_changed.emit(special_meter)
+
+func finish_race(final_position: int) -> void:
+	finished_race = true
+	race_position = final_position
+	race_finished.emit(final_position)
+	AudioManager.play_race_finish(final_position)
+
+func start_race() -> void:
+	is_racing = true
+	finished_race = false
+	current_lap = 0
+	current_checkpoint = 0
+	race_time = 0.0
+	health = max_health
+	boost_meter = 0
+	special_meter = 0
+	current_weapon = ""
+	weapon_count = 0
+
+func reset_position(spawn_position: Vector2, spawn_rotation: float) -> void:
+	position = spawn_position
+	rotation = spawn_rotation
+	current_speed = 0
+	velocity = Vector2.ZERO

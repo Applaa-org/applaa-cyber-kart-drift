@@ -1,0 +1,65 @@
+[gd_scene load_steps=3 format=3 uid="uid://playerkart001"]
+
+[ext_resource type="Script" path="res://scripts/PlayerKart.gd" id="1"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kart"]
+size = Vector2(60, 30)
+
+[node name="PlayerKart" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 7
+script = ExtResource("1")
+
+[node name="KartBody" type="Node2D" parent="."]
+
+[node name="Body" type="Polygon2D" parent="KartBody"]
+color = Color(0, 0.8, 1, 1)
+polygon = PackedVector2Array(-30, -12, 30, -8, 35, 0, 30, 8, -30, 12, -35, 0)
+
+[node name="Cockpit" type="Polygon2D" parent="KartBody"]
+color = Color(0.1, 0.1, 0.2, 1)
+polygon = PackedVector2Array(-10, -8, 15, -6, 15, 6, -10, 8)
+
+[node name="ThrusterLeft" type="Polygon2D" parent="KartBody"]
+position = Vector2(-30, -10)
+color = Color(0, 0.9, 1, 1)
+polygon = PackedVector2Array(-8, -3, 0, -2, 0, 2, -8, 3)
+
+[node name="ThrusterRight" type="Polygon2D" parent="KartBody"]
+position = Vector2(-30, 10)
+color = Color(0, 0.9, 1, 1)
+polygon = PackedVector2Array(-8, -3, 0, -2, 0, 2, -8, 3)
+
+[node name="NeonStripe" type="Line2D" parent="KartBody"]
+points = PackedVector2Array(-25, 0, 25, 0)
+width = 2.0
+default_color = Color(1, 0, 0.5, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_kart")
+
+[node name="DriftParticlesLeft" type="GPUParticles2D" parent="."]
+position = Vector2(-25, -15)
+emitting = false
+amount = 20
+lifetime = 0.5
+
+[node name="DriftParticlesRight" type="GPUParticles2D" parent="."]
+position = Vector2(-25, 15)
+emitting = false
+amount = 20
+lifetime = 0.5
+
+[node name="BoostParticles" type="GPUParticles2D" parent="."]
+position = Vector2(-35, 0)
+emitting = false
+amount = 30
+lifetime = 0.3
+
+[node name="TrailLeft" type="Line2D" parent="."]
+width = 3.0
+default_color = Color(0, 1, 1, 0.5)
+
+[node name="TrailRight" type="Line2D" parent="."]
+width = 3.0
+default_color = Color(0, 1, 1, 0.5)

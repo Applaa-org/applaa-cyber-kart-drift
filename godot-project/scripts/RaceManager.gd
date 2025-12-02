@@ -1,338 +1,224 @@
 extends Node
 class_name RaceManager
 
-# Race State
-enum RaceState { COUNTDOWN, RACING, FINISHED, PAUSED }
-var current_race_state: RaceState = RaceState.COUNTDOWN
+signal race_countdown_tick(count: int)
+signal race_started()
+signal race_finished()
+signal position_updated(positions: Array)
+signal lap_updated(racer: Node, lap: int)
+
+enum RaceState { WAITING, COUNTDOWN, RACING, FINISHED }
+var current_state: RaceState = RaceState.WAITING
 
 # Race Configuration
 var total_laps: int = 3
-var race_mode: String = "single_race"
-var track_name: String = "neon_skyline_1"
+var total_checkpoints: int = 0
+var race_mode: String = "standard"
 
 # Racers
+var all_racers: Array = []
 var player_kart: PlayerKart
 var ai_karts: Array[AIKart] = []
-var all_racers: Array = []
 
 # Timing
-var countdown_timer: float = 3.0
-var race_timer: float = 0.0
-var elimination_timer: float = 20.0
+var countdown_timer: float = 0.0
+var countdown_value: int = 3
+var race_time: float = 0.0
+var update_position_timer: float = 0.0
 
-# Checkpoints and Track
-var checkpoints: Array[Area2D] = []
-var finish_line: Area2D
-var race_path: Path2D
+# Results
+var finished_racers: Array = []
+var race_positions: Array = []
 
-# Position tracking
-var racer_positions: Array = []
+func _ready() -> void:
+	pass
 
-# Signals
-signal countdown_tick(count: int)
-signal race_started()
-signal race_finished(results: Array)
-signal position_updated(position: int)
-signal lap_completed(racer: Node, lap: int)
-signal elimination_warning(time_left: float)
-
-func _ready():
-	add_to_group("race_manager")
-
-func initialize_race(mode: String, track: String, ai_count: int, laps: int = 3):
-	race_mode = mode
-	track_name = track
-	total_laps = laps
-	Global.total_laps = laps
-	Global.reset_race()
-	
-	# Setup racers
-	setup_player()
-	setup_ai_racers(ai_count)
-	
-	# Gather all racers
-	all_racers = [player_kart] + ai_karts
-	
-	# Start countdown
-	current_race_state = RaceState.COUNTDOWN
-	countdown_timer = 3.0
-	Global.current_state = Global.GameState.RACING
-
-func setup_player():
-	player_kart = get_tree().get_first_node_in_group("player") as PlayerKart
-	if player_kart:
-		player_kart.lap_completed.connect(_on_player_lap_completed)
-
-func setup_ai_racers(count: int):
-	ai_karts.clear()
-	
-	var difficulty_map = {<applaa-write path="godot-project/scripts/RaceManager.gd" description="Race manager handling game modes, positions, and race flow">
-extends Node
-class_name RaceManager
-
-# Race State
-enum RaceState { COUNTDOWN, RACING, FINISHED, PAUSED }
-var current_race_state: RaceState = RaceState.COUNTDOWN
-
-# Race Configuration
-var total_laps: int = 3
-var race_mode: String = "single_race"
-var track_name: String = "neon_skyline_1"
-
-# Racers
-var player_kart: PlayerKart
-var ai_karts: Array[AIKart] = []
-var all_racers: Array = []
-
-# Timing
-var countdown_timer: float = 3.0
-var race_timer: float = 0.0
-var elimination_timer: float = 20.0
-
-# Checkpoints and Track
-var checkpoints: Array[Area2D] = []
-var finish_line: Area2D
-var race_path: Path2D
-
-# Position tracking
-var racer_positions: Array = []
-
-# Signals
-signal countdown_tick(count: int)
-signal race_started()
-signal race_finished(results: Array)
-signal position_updated(position: int)
-signal lap_completed(racer: Node, lap: int)
-signal elimination_warning(time_left: float)
-
-func _ready():
-	add_to_group("race_manager")
-
-func initialize_race(mode: String, track: String, ai_count: int, laps: int = 3):
-	race_mode = mode
-	track_name = track
-	total_laps = laps
-	Global.total_laps = laps
-	Global.reset_race()
-	
-	# Setup racers
-	setup_player()
-	setup_ai_racers(ai_count)
-	
-	# Gather all racers
-	all_racers = [player_kart] + ai_karts
-	
-	# Start countdown
-	current_race_state = RaceState.COUNTDOWN
-	countdown_timer = 3.0
-	Global.current_state = Global.GameState.RACING
-
-func setup_player():
-	player_kart = get_tree().get_first_node_in_group("player") as PlayerKart
-	if player_kart:
-		player_kart.lap_completed.connect(_on_player_lap_completed)
-
-func setup_ai_racers(count: int):
-	ai_karts.clear()
-	
-	var difficulty_map = {
-		"easy": AIKart.AIDifficulty.EASY,
-		"medium": AIKart.AIDifficulty.MEDIUM,
-		"hard": AIKart.AIDifficulty.HARD,
-		"extreme": AIKart.AIDifficulty.EXTREME
-	}
-	
-	var ai_difficulty = difficulty_map.get(Global.ai_difficulty, AIKart.AIDifficulty.MEDIUM)
-	
-	for ai_node in get_tree().get_nodes_in_group("ai_karts"):
-		var ai = ai_node as AIKart
-		if ai:
-			ai.difficulty = ai_difficulty
-			ai.ai_destroyed.connect(_on_ai_destroyed)
-			ai_karts.append(ai)
-			
-			if race_path:
-				ai.set_race_path(race_path)
-
-func _process(delta: float):
-	match current_race_state:
+func _process(delta: float) -> void:
+	match current_state:
 		RaceState.COUNTDOWN:
 			process_countdown(delta)
 		RaceState.RACING:
 			process_racing(delta)
-		RaceState.PAUSED:
-			pass
 		RaceState.FINISHED:
 			pass
 
-func process_countdown(delta: float):
-	var prev_count = int(countdown_timer)
+func process_countdown(delta: float) -> void:
 	countdown_timer -= delta
-	var new_count = int(countdown_timer)
-	
-	if new_count != prev_count and new_count >= 0:
-		countdown_tick.emit(new_count)
-		AudioManager.play_countdown_beep(new_count)
 	
 	if countdown_timer <= 0:
-		current_race_state = RaceState.RACING
-		race_started.emit()
-		AudioManager.play_countdown_beep(0)  # GO!
+		countdown_value -= 1
+		race_countdown_tick.emit(countdown_value)
+		AudioManager.play_countdown_beep(countdown_value == 0)
+		
+		if countdown_value <= 0:
+			start_race()
+		else:
+			countdown_timer = 1.0
 
-func process_racing(delta: float):
-	race_timer += delta
-	Global.race_time = race_timer
+func process_racing(delta: float) -> void:
+	race_time += delta
 	
-	# Update positions
-	update_race_positions()
-	
-	# Handle elimination mode
-	if race_mode == "elimination":
-		process_elimination(delta)
-	
-	# Check for race completion
-	check_race_completion()
+	# Update positions periodically
+	update_position_timer -= delta
+	if update_position_timer <= 0:
+		update_positions()
+		update_position_timer = 0.2
 
-func update_race_positions():
-	# Calculate progress for each racer
-	racer_positions.clear()
+func setup_race(track_data: Dictionary, racers: Array) -> void:
+	all_racers = racers
+	total_laps = track_data.get("laps", 3)
+	total_checkpoints = track_data.get("checkpoints", 5)
+	race_mode = Global.current_mode
+	
+	# Separate player and AI
+	for racer in all_racers:
+		if racer is PlayerKart:
+			player_kart = racer
+		elif racer is AIKart:
+			ai_karts.append(racer)
+	
+	# Connect signals
+	for racer in all_racers:
+		if racer.has_signal("lap_completed"):
+			racer.lap_completed.connect(_on_racer_lap_completed.bind(racer))
+
+func begin_countdown() -> void:
+	current_state = RaceState.COUNTDOWN
+	countdown_value = 3
+	countdown_timer = 1.0
+	race_countdown_tick.emit(countdown_value)
+	AudioManager.play_countdown_beep()
+
+func start_race() -> void:
+	current_state = RaceState.RACING
+	race_time = 0.0
+	finished_racers.clear()
 	
 	for racer in all_racers:
-		if racer and is_instance_valid(racer):
-			var progress = racer.get_race_progress()
-			racer_positions.append({
-				"racer": racer,
-				"progress": progress
-			})
+		if racer.has_method("start_race"):
+			racer.start_race()
 	
-	# Sort by progress (highest first)
-	racer_positions.sort_custom(func(a, b): return a.progress > b.progress)
+	race_started.emit()
+
+func update_positions() -> void:
+	# Calculate progress for each racer
+	var racer_progress: Array = []
 	
-	# Update position for each racer
-	for i in range(racer_positions.size()):
-		var racer = racer_positions[i].racer
-		racer.race_position = i + 1
+	for racer in all_racers:
+		if racer in finished_racers:
+			continue
 		
-		if racer == player_kart:
-			Global.race_position = i + 1
-			position_updated.emit(i + 1)
-
-func process_elimination(delta: float):
-	elimination_timer -= delta
-	
-	if elimination_timer <= 5.0:
-		elimination_warning.emit(elimination_timer)
-	
-	if elimination_timer <= 0:
-		elimination_timer = 20.0
-		eliminate_last_place()
-
-func eliminate_last_place():
-	if racer_positions.size() > 1:
-		var last_racer = racer_positions[racer_positions.size() - 1].racer
-		
-		if last_racer == player_kart:
-			# Player eliminated
-			end_race_defeat()
-		else:
-			# Eliminate AI
-			var ai = last_racer as AIKart
-			if ai:
-				ai.on_destroyed()
-				all_racers.erase(ai)
-
-func check_race_completion():
-	# Check if player finished
-	if Global.lap_count >= total_laps:
-		end_race_victory()
-
-func _on_player_lap_completed():
-	lap_completed.emit(player_kart, Global.lap_count)
-	
-	if Global.lap_count >= total_laps:
-		end_race_victory()
-	elif Global.lap_count == total_laps - 1:
-		AudioManager.set_final_lap(true)
-
-func _on_ai_destroyed(ai: AIKart):
-	ai_karts.erase(ai)
-	all_racers.erase(ai)
-	Global.knockouts += 1
-	Global.add_score(50)
-
-func end_race_victory():
-	current_race_state = RaceState.FINISHED
-	
-	# Calculate final results
-	var results = []
-	for i in range(racer_positions.size()):
-		results.append({
-			"position": i + 1,
-			"racer": racer_positions[i].racer,
-			"time": race_timer if racer_positions[i].racer == player_kart else race_timer + randf_range(0.5, 5.0)
+		var progress = calculate_racer_progress(racer)
+		racer_progress.append({
+			"racer": racer,
+			"progress": progress
 		})
 	
-	# Award based on position
-	var position_rewards = [500, 300, 200, 100, 50, 25, 10, 5]
-	if Global.race_position <= position_rewards.size():
-		Global.add_credits(position_rewards[Global.race_position - 1])
+	# Sort by progress (highest first)
+	racer_progress.sort_custom(func(a, b): return a.progress > b.progress)
 	
-	Global.add_xp(100 + (8 - Global.race_position) * 20)
+	# Assign positions (accounting for finished racers)
+	var position = finished_racers.size() + 1
+	race_positions.clear()
 	
-	AudioManager.play_victory_fanfare()
-	race_finished.emit(results)
+	for item in racer_progress:
+		item.racer.race_position = position
+		race_positions.append(item.racer)
+		position += 1
 	
-	# Change to victory screen after delay
-	get_tree().create_timer(2.0).timeout.connect(func():
-		get_tree().change_scene_to_file("res://scenes/VictoryScreen.tscn")
-	)
+	position_updated.emit(race_positions)
 
-func end_race_defeat():
-	current_race_state = RaceState.FINISHED
-	Global.current_state = Global.GameState.DEFEAT
+func calculate_racer_progress(racer: Node) -> float:
+	# Progress = laps * 1000 + checkpoints * 100 + distance to next checkpoint
+	var lap_progress = racer.current_lap * 1000.0
+	var checkpoint_progress = racer.current_checkpoint * 100.0
 	
-	AudioManager.play_defeat_sound()
+	# Estimate distance progress (0-99)
+	var distance_progress = 50.0  # Would calculate actual distance
 	
-	get_tree().create_timer(1.5).timeout.connect(func():
-		get_tree().change_scene_to_file("res://scenes/DefeatScreen.tscn")
-	)
+	return lap_progress + checkpoint_progress + distance_progress
 
-func pause_race():
-	if current_race_state == RaceState.RACING:
-		current_race_state = RaceState.PAUSED
-		get_tree().paused = true
+func _on_racer_lap_completed(lap: int, racer: Node) -> void:
+	lap_updated.emit(racer, lap)
+	
+	# Check if race finished
+	if lap >= total_laps:
+		racer_finished(racer)
 
-func resume_race():
-	if current_race_state == RaceState.PAUSED:
-		current_race_state = RaceState.RACING
-		get_tree().paused = false
+func racer_finished(racer: Node) -> void:
+	if racer in finished_racers:
+		return
+	
+	var position = finished_racers.size() + 1
+	finished_racers.append(racer)
+	
+	if racer.has_method("finish_race"):
+		racer.finish_race(position)
+	
+	# Check if all racers finished or player finished
+	if racer == player_kart:
+		Global.player_position = position
+		Global.player_race_time = race_time
+		Global.player_drift_score = player_kart.total_drift_score
+	
+	# End race when player finishes or all finish
+	if racer == player_kart or finished_racers.size() >= all_racers.size():
+		end_race()
 
-func restart_race():
-	Global.reset_race()
-	get_tree().reload_current_scene()
+func end_race() -> void:
+	current_state = RaceState.FINISHED
+	
+	# Compile results
+	Global.race_results.clear()
+	
+	var position = 1
+	for racer in finished_racers:
+		Global.race_results.append({
+			"position": position,
+			"name": racer.name,
+			"time": racer.race_time,
+			"is_player": racer == player_kart
+		})
+		position += 1
+	
+	# Add unfinished racers
+	for racer in all_racers:
+		if racer not in finished_racers:
+			Global.race_results.append({
+				"position": position,
+				"name": racer.name,
+				"time": -1,
+				"is_player": racer == player_kart
+			})
+			position += 1
+	
+	race_finished.emit()
 
-func set_race_path(path: Path2D):
-	race_path = path
-	for ai in ai_karts:
-		ai.set_race_path(path)
+func get_player_position() -> int:
+	if player_kart:
+		return player_kart.race_position
+	return 0
 
-func register_checkpoint(checkpoint: Area2D, index: int):
-	while checkpoints.size() <= index:
-		checkpoints.append(null)
-	checkpoints[index] = checkpoint
+func get_race_time() -> float:
+	return race_time
 
-func register_finish_line(line: Area2D):
-	finish_line = line
+func get_player_lap() -> int:
+	if player_kart:
+		return player_kart.current_lap
+	return 0
 
-func get_race_time_formatted() -> String:
-	var minutes = int(race_timer / 60)
-	var seconds = int(race_timer) % 60
-	var milliseconds = int((race_timer - int(race_timer)) * 100)
-	return "%02d:%02d.%02d" % [minutes, seconds, milliseconds]
+func format_time(time_seconds: float) -> String:
+	var minutes = int(time_seconds) / 60
+	var seconds = int(time_seconds) % 60
+	var milliseconds = int((time_seconds - int(time_seconds)) * 1000)
+	return "%d:%02d.%03d" % [minutes, seconds, milliseconds]
 
-func get_position_suffix(pos: int) -> String:
-	match pos:
-		1: return "st"
-		2: return "nd"
-		3: return "rd"
-		_: return "th"
+func reset_race() -> void:
+	current_state = RaceState.WAITING
+	race_time = 0.0
+	finished_racers.clear()
+	race_positions.clear()
+	
+	for racer in all_racers:
+		if racer.has_method("reset_position"):
+			racer.reset_position(Vector2.ZERO, 0)
