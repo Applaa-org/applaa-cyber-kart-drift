@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cyber Kart Drift</title>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0a0a15 0%, #1a1a2e 50%, #0f0f1a 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff; overflow: hidden;
+        }
+        #gameCanvas {
+            border: 3px solid #00d4ff; border-radius: 8px; background: #0a0a12;
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const W = 1280, H = 720;
+        
+        let state = 'menu', raceTime = 0, countdown = 3, position = 1;
+        let driftScore = 0, totalDrift = 0, showDrift = false, driftTimer = 0;
+        let mouseX = 0, mouseY = 0, lastTime = 0;
+        
+        const player = {
+            x: 200, y: 360, angle: 0, speed: 0, maxSpeed: 450, accel: 250, handling: 0.8,
+            health: 100, boost: 0, special: 0, drifting: false, driftDir: 0, driftAngle: 0,
+            boosting: false, checkpoint: 0, lap: 1, hover: 0, hoverT: 0
+        };
+        
+        let ai = [], particles = [];
+        const aiColors = ['#ff3333', '#33ff33', '#ffff33', '#ff33ff', '#33ffff'];
+        const track = { waypoints: [], checkpoints: [], boosts: [] };
+        const keys = {};
+        
+        function init() {
+            const cx = W/2, cy = H/2, rx = 500, ry = 280;
+            track.waypoints = [];
+            for (let i = 0; i < 40; i++) {
+                const a = (i/40) * Math.PI * 2;
+                track.waypoints.push({ x: cx + Math.cos(a)*rx, y: cy + Math.sin(a)*ry });
+            }
+            track.checkpoints = [
+                { x: cx+rx, y: cy, id: 1 }, { x: cx, y: cy+ry, id: 2 },
+                { x: cx-rx, y: cy, id: 3 }, { x: cx, y: cy-ry, id: 0 }
+            ];
+            track.boosts = [
+                { x: cx+rx-100, y: cy, w: 80, h: 40 }, { x: cx-rx+100, y: cy, w: 80, h: 40 },
+                { x: cx+200, y: cy-ry+50, w: 80, h: 40 }, { x: cx-200, y: cy+ry-50, w: 80, h: 40 }
+            ];
+        }
+        
+        function initAI() {
+            ai = [];
+            for (let i = 0; i < 5; i++) {
+                ai.push({
+                    x: 160 + (i%2)*50, y: 280 + i*50, angle: 0, speed: 0,
+                    maxSpeed: 350 + Math.random()*80, wp: 0, color: aiColors[i],
+                    lap: 1, prog: 0, hover: 0, hoverT: Math.random()*Math.PI*2
+                });
+            }
+        }
+        
+        function reset() {
+            player.x = 200; player.y = 360; player.angle = 0; player.speed = 0;
+            player.health = 100; player.boost = 0; player.special = 0;
+            player.drifting = false; player.boosting = false;
+            player.checkpoint = 0; player.lap = 1;
+            raceTime = 0; driftScore = 0; totalDrift = 0; countdown = 3;
+            initAI(); particles = [];
+        }
+        
+        canvas.addEventListener('mousemove', e => {
+            const r = canvas.getBoundingClientRect();
+            mouseX = (e.clientX - r.left) * (W / r.width);
+            mouseY = (e.clientY - r.top) * (H / r.height);
+        });
+        
+        canvas.addEventListener('click', () => {
+            if (state === 'menu') {
+                for (let i = 0; i < 4; i++) {
+                    const y = 320 + i*60;
+                    if (mouseY > y-25 && mouseY < y+25 && mouseX > W/2-140 && mouseX < W/2+140) {
+                        if (i < 2) { reset(); init(); state = 'countdown'; }
+                        else if (i === 3) alert('Thanks for playing!');
+                    }
+                }
+            } else if (state === 'paused') {
+                for (let i = 0; i < 3; i++) {
+                    const y = H/2 + i*60;
+                    if (mouseY > y-25 && mouseY < y+25 && mouseX > W/2-100 && mouseX < W/2+100) {
+                        if (i === 0) state = 'racing';
+                        else if (i === 1) { reset(); state = 'countdown'; }
+                        else state = 'menu';
+                    }
+                }
+            } else if (state === 'results') {
+                for (let i = 0; i < 3; i++) {
+                    const y = H/2 + 100 + i*60;
+                    if (mouseY > y-25 && mouseY < y+25 && mouseX > W/2-100 && mouseX < W/2+100) {
+                        if (i === 0) { reset(); state = 'countdown'; }
+                        else if (i === 1) state = 'menu';
+                        else alert('Thanks for playing!');
+                    }
+                }
+            }
+        });
+        
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === 'Escape') {
+                if (state === 'racing') state = 'paused';
+                else if (state === 'paused') state = 'racing';
+            }
+        });
+        document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        
+        function particle(x, y, c) {
+            particles.push({ x, y, vx: (Math.random()-.5)*100, vy: (Math.random()-.5)*100, life: 1, c });
+        }
+        
+        function updateParticles(dt) {
+            for (let i = particles.length-1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt*2;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+        
+        function updatePlayer(dt) {
+            player.hoverT += dt*4;
+            player.hover = Math.sin(player.hoverT)*3;
+            
+            let steer = 0;
+            if (keys['a'] || keys['arrowleft']) steer -= 1;
+            if (keys['d'] || keys['arrowright']) steer += 1;
+            player.angle += steer * player.handling * 3.5 * dt * (player.drifting ? 0.5 : 1);
+            
+            let target = 0;
+            if (keys[' '] || keys['w'] || keys['arrowup']) target = player.maxSpeed * (player.boosting ? 1.4 : 1);
+            if (keys['s'] || keys['arrowdown']) target = -player.maxSpeed * 0.3;
+            
+            if (target > player.speed) player.speed = Math.min(player.speed + player.accel*dt, target);
+            else if (target < player.speed) player.speed = Math.max(player.speed - player.accel*1.5*dt, target);
+            else player.speed *= 0.99;
+            
+            if (keys['shift'] && Math.abs(steer) > 0 && player.speed > 200) {
+                if (!player.drifting) { player.drifting = true; player.driftDir = Math.sign(steer); }
+                player.driftAngle = player.driftDir * 0.4;
+                player.boost = Math.min(player.boost + 20*dt, 100);
+                driftScore += Math.abs(player.driftAngle) * player.speed * dt * 0.1;
+                if (Math.random() < 0.3) {
+                    const ox = Math.cos(player.angle+Math.PI)*25, oy = Math.sin(player.angle+Math.PI)*25;
+                    particle(player.x+ox, player.y+oy, '#00ffaa');
+                }
+            } else {
+                if (player.drifting && driftScore > 10) { totalDrift += Math.floor(driftScore); showDrift = true; driftTimer = 2; }
+                player.drifting = false; player.driftAngle *= 0.9; driftScore = 0;
+            }
+            
+            if (keys['e'] && player.boost > 0) {
+                player.boosting = true; player.boost = Math.max(0, player.boost - 30*dt);
+                if (Math.random() < 0.5) {
+                    const ox = Math.cos(player.angle+Math.PI)*30, oy = Math.sin(player.angle+Math.PI)*30;
+                    particle(player.x+ox, player.y+oy, '#ff6600');
+                }
+            } else player.boosting = false;
+            
+            const ma = player.angle + player.driftAngle*0.3;
+            player.x += Math.cos(ma)*player.speed*dt;
+            player.y += Math.sin(ma)*player.speed*dt;
+            
+            const cx = W/2, cy = H/2;
+            const dist = Math.sqrt(Math.pow((player.x-cx)/550, 2) + Math.pow((player.y-cy)/320, 2));
+            if (dist > 1.15) { player.speed *= 0.95; const a = Math.atan2(player.y-cy, player.x-cx); player.x = cx + Math.cos(a)*550*1.15; player.y = cy + Math.sin(a)*320*1.15; }
+            if (dist < 0.5) { player.speed *= 0.95; const a = Math.atan2(player.y-cy, player.x-cx); player.x = cx + Math.cos(a)*550*0.5; player.y = cy + Math.sin(a)*320*0.5; }
+            
+            for (const b of track.boosts) {
+                if (Math.abs(player.x-b.x) < b.w/2 && Math.abs(player.y-b.y) < b.h/2) {
+                    player.boost = Math.min(player.boost+40, 100);
+                    player.speed = Math.min(player.speed+100, player.maxSpeed*1.3);
+                }
+            }
+            
+            for (const cp of track.checkpoints) {
+                const d = Math.sqrt(Math.pow(player.x-cp.x,2) + Math.pow(player.y-cp.y,2));
+                if (d < 60) {
+                    if (cp.id === 0 && player.checkpoint >= 3) { player.lap++; player.checkpoint = 0; if (player.lap > 3) state = 'results'; }
+                    else if (cp.id === player.checkpoint+1) player.checkpoint = cp.id;
+                }
+            }
+            
+            player.special = Math.min(player.special + dt*5, 100);
+            if (showDrift) { driftTimer -= dt; if (driftTimer <= 0) showDrift = false; }
+        }
+        
+        function updateAI(dt) {
+            for (const a of ai) {
+                a.hoverT += dt*4; a.hover = Math.sin(a.hoverT)*2;
+                const t = track.waypoints[a.wp];
+                const dx = t.x-a.x, dy = t.y-a.y, dist = Math.sqrt(dx*dx+dy*dy);
+                const ta = Math.atan2(dy, dx);
+                let ad = ta - a.angle;
+                while (ad > Math.PI) ad -= Math.PI*2;
+                while (ad < -Math.PI) ad += Math.PI*2;
+                a.angle += Math.sign(ad) * Math.min(Math.abs(ad), 3*dt);
+                a.speed = Math.abs(ad) > 0.5 ? Math.max(a.speed-200*dt, a.maxSpeed*0.5) : Math.min(a.speed+200*dt, a.maxSpeed);
+                a.x += Math.cos(a.angle)*a.speed*dt;
+                a.y += Math.sin(a.angle)*a.speed*dt;
+                if (dist < 80) { a.wp = (a.wp+1) % track.waypoints.length; if (a.wp === 0) a.lap++; }
+                a.prog = a.lap*1000 + a.wp*10;
+            }
+        }
+        
+        function updatePositions() {
+            const all = [{ prog: player.lap*1000 + player.checkpoint*100, p: true }, ...ai.map(a => ({ prog: a.prog, p: false }))];
+            all.sort((a, b) => b.prog - a.prog);
+            position = all.findIndex(r => r.p) + 1;
+        }
+        
+        function fmt(s) { const m = Math.floor(s/60), sec = Math.floor(s%60), ms = Math.floor((s%1)*1000); return `${m}:${sec.toString().padStart(2,'0')}.${ms.toString().padStart(3,'0')}`; }
+        
+        function drawTrack() {
+            const cx = W/2, cy = H/2;
+            ctx.strokeStyle = 'rgba(0,212,255,0.2)'; ctx.lineWidth = 120;
+            ctx.beginPath(); ctx.ellipse(cx, cy, 500, 280, 0, 0, Math.PI*2); ctx.stroke();
+            ctx.strokeStyle = '#1a2a3a'; ctx.lineWidth = 100;
+            ctx.beginPath(); ctx.ellipse(cx, cy, 500, 280, 0, 0, Math.PI*2); ctx.stroke();
+            ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 3; ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 15;
+            ctx.beginPath(); ctx.ellipse(cx, cy, 550, 330, 0, 0, Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.ellipse(cx, cy, 450, 230, 0, 0, Math.PI*2); ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.setLineDash([20,20]);
+            ctx.beginPath(); ctx.ellipse(cx, cy, 500, 280, 0, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+            for (const b of track.boosts) {
+                ctx.fillStyle = 'rgba(255,100,0,0.6)'; ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 20;
+                ctx.fillRect(b.x-b.w/2, b.y-b.h/2, b.w, b.h);
+                ctx.fillStyle = '#ffaa00'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
+                ctx.fillText('»', b.x, b.y+7); ctx.shadowBlur = 0;
+            }
+            ctx.fillStyle = '#fff'; ctx.fillRect(180, 340, 10, 80);
+            ctx.fillStyle = '#000';
+            for (let i = 0; i < 4; i++) { ctx.fillRect(180, 340+i*20, 5, 10); ctx.fillRect(185, 350+i*20, 5, 10); }
+        }
+        
+        function drawKart(x, y, ang, col, glow, hov, drift, boost) {
+            ctx.save(); ctx.translate(x, y+hov); ctx.rotate(ang);
+            ctx.shadowColor = glow||col; ctx.shadowBlur = 20; ctx.fillStyle = col;
+            ctx.beginPath(); ctx.moveTo(30,0); ctx.lineTo(-20,-12); ctx.lineTo(-25,0); ctx.lineTo(-20,12); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.beginPath(); ctx.ellipse(5,0,10,6,0,0,Math.PI*2); ctx.fill();
+            const tc = boost ? '#ff6600' : (drift ? '#00ff88' : '#00aaff');
+            ctx.shadowColor = tc; ctx.shadowBlur = 10; ctx.fillStyle = tc;
+            const tl = boost ? 25 : (drift ? 18 : 12);
+            ctx.beginPath(); ctx.moveTo(-25,-8); ctx.lineTo(-25-tl,-5); ctx.lineTo(-25-tl,-11); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(-25,8); ctx.lineTo(-25-tl,5); ctx.lineTo(-25-tl,11); ctx.closePath(); ctx.fill();
+            ctx.strokeStyle = glow||'#ff0066'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(-15,0); ctx.lineTo(20,0); ctx.stroke();
+            ctx.shadowBlur = 0; ctx.restore();
+        }
+        
+        function drawParticles() {
+            for (const p of particles) {
+                ctx.globalAlpha = p.life; ctx.fillStyle = p.c; ctx.shadowColor = p.c; ctx.shadowBlur = 10;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 6*p.life, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+        }
+        
+        function drawHUD() {
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'left';
+            ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 10;
+            ctx.fillText(`${position}`, 30, 55);
+            ctx.font = '20px Arial'; ctx.fillText(`/${ai.length+1}`, 70, 55);
+            ctx.font = '14px Arial'; ctx.fillStyle = '#aaa'; ctx.fillText('POSITION', 30, 75);
+            ctx.textAlign = 'center'; ctx.font = 'bold 24px Arial'; ctx.fillStyle = '#fff';
+            ctx.fillText(`LAP ${Math.min(player.lap,3)}/3`, W/2, 40);
+            ctx.font = '20px Arial'; ctx.fillText(fmt(raceTime), W/2, 65);
+            ctx.textAlign = 'right'; ctx.font = 'bold 36px Arial';
+            ctx.fillStyle = player.boosting ? '#ff6600' : '#00d4ff';
+            ctx.fillText(`${Math.floor(player.speed*2.5)}`, W-80, 50);
+            ctx.font = '16px Arial'; ctx.fillStyle = '#aaa'; ctx.fillText('KM/H', W-30, 50);
+            ctx.shadowBlur = 0;
+            
+            // Boost bar
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(30, H-80, 200, 20);
+            ctx.fillStyle = '#00d4ff'; ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 10;
+            ctx.fillRect(30, H-80, player.boost*2, 20);
+            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '12px Arial'; ctx.textAlign = 'left';
+            ctx.fillText('BOOST', 30, H-85);
+            
+            // Special bar
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(30, H-50, 200, 15);
+            ctx.fillStyle = '#ff0066'; ctx.shadowColor = '#ff0066'; ctx.shadowBlur = player.special >= 100 ? 15 : 5;
+            ctx.fillRect(30, H-50, player.special*2, 15);
+            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.fillText('SPECIAL', 30, H-55);
+            
+            // Health bar
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W-230, H-80, 200, 20);
+            ctx.fillStyle = '#00ff88'; ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 10;
+            ctx.fillRect(W-230, H-80, player.health*2, 20);
+            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.textAlign = 'right';
+            ctx.fillText('HEALTH', W-30, H-85);
+            
+            if (showDrift) {
+                ctx.textAlign = 'center'; ctx.font = 'bold 28px Arial'; ctx.fillStyle = '#00ff88';
+                ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 15; ctx.globalAlpha = Math.min(1, driftTimer);
+                ctx.fillText(`+${totalDrift} DRIFT!`, W/2, H/2+100);
+                ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+            }
+            
+            ctx.textAlign = 'center'; ctx.font = '12px Arial'; ctx.fillStyle = '#666';
+            ctx.fillText('W/SPACE: Accelerate | A/D: Steer | SHIFT: Drift | E: Boost | ESC: Pause', W/2, H-15);
+        }
+        
+        function drawCountdown() {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, W, H);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const c = Math.ceil(countdown);
+            ctx.font = 'bold 150px Arial'; ctx.shadowBlur = 30;
+            if (c > 0) { ctx.fillStyle = '#ffff00'; ctx.shadowColor = '#ffff00'; ctx.fillText(c.toString(), W/2, H/2); }
+            else { ctx.fillStyle = '#00ff00'; ctx.shadowColor = '#00ff00'; ctx.fillText('GO!', W/2, H/2); }
+            ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+        }
+        
+        function drawBtn(txt, y, w) {
+            const hov = mouseY > y-25 && mouseY < y+25 && mouseX > W/2-w/2 && mouseX < W/2+w/2;
+            ctx.fillStyle = hov ? 'rgba(0,150,200,0.8)' : 'rgba(0,80,120,0.7)';
+            ctx.strokeStyle = hov ? '#00ffff' : '#00d4ff';
+            ctx.lineWidth = 2; ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = hov ? 20 : 10;
+            ctx.beginPath(); ctx.roundRect(W/2-w/2, y-25, w, 50, 5); ctx.fill(); ctx.stroke();
+            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center';
+            ctx.fillText(txt, W/2, y+7);
+        }
+        
+        function drawMenu() {
+            ctx.fillStyle = '#0a0a15'; ctx.fillRect(0, 0, W, H);
+            for (let i = 0; i < 50; i++) {
+                ctx.fillStyle = `rgba(0,212,255,${Math.random()*0.3})`;
+                ctx.beginPath(); ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.textAlign = 'center'; ctx.font = 'bold 64px Arial'; ctx.fillStyle = '#00d4ff';
+            ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 30;
+            ctx.fillText('CYBER KART DRIFT', W/2, 180);
+            ctx.font = '24px Arial'; ctx.fillStyle = '#ff0066'; ctx.shadowColor = '#ff0066';
+            ctx.fillText('Anti-Gravity Racing', W/2, 220);
+            ctx.shadowBlur = 0;
+            ['SINGLE RACE', 'TIME TRIAL', 'GARAGE', 'QUIT'].forEach((t,i) => drawBtn(t, 320+i*60, 280));
+            ctx.font = '14px Arial'; ctx.fillStyle = '#666'; ctx.fillText('v1.0.0 - Applaa Preview', W/2, H-30);
+        }
+        
+        function drawPaused() {
+            ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
+            ctx.textAlign = 'center'; ctx.font = 'bold 48px Arial'; ctx.fillStyle = '#00d4ff';
+            ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 20;
+            ctx.fillText('PAUSED', W/2, H/2-80);
+            ctx.shadowBlur = 0;
+            ['RESUME', 'RESTART', 'MAIN MENU'].forEach((t,i) => drawBtn(t, H/2+i*60, 200));
+        }
+        
+        function drawResults() {
+            ctx.fillStyle = 'rgba(0,20,40,0.95)'; ctx.fillRect(0, 0, W, H);
+            ctx.textAlign = 'center'; ctx.font = 'bold 48px Arial';
+            ctx.fillStyle = position === 1 ? '#ffd700' : '#00d4ff';
+            ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 30;
+            ctx.fillText(position === 1 ? '🏆 VICTORY! 🏆' : 'RACE COMPLETE', W/2, 150);
+            ctx.font = 'bold 80px Arial';
+            const pt = position === 1 ? '1ST' : position === 2 ? '2ND' : position === 3 ? '3RD' : `${position}TH`;
+            ctx.fillText(pt, W/2, 250);
+            ctx.shadowBlur = 0; ctx.font = '24px Arial'; ctx.fillStyle = '#aaa';
+            ctx.fillText(`Time: ${fmt(raceTime)}`, W/2, H/2-30);
+            ctx.fillText(`Drift Score: ${totalDrift}`, W/2, H/2);
+            ctx.fillStyle = '#00ff88'; ctx.fillText(`+${500-(position-1)*50} Credits`, W/2, H/2+40);
+            ['RACE AGAIN', 'MAIN MENU', 'QUIT'].forEach((t,i) => drawBtn(t, H/2+100+i*60, 200));
+        }
+        
+        function gameLoop(time) {
+            const dt = Math.min((time - lastTime) / 1000, 0.1);
+            lastTime = time;
+            
+            ctx.fillStyle = '#0a0a12'; ctx.fillRect(0, 0, W, H);
+            
+            if (state === 'menu') {
+                drawMenu();
+            } else if (state === 'countdown') {
+                drawTrack();
+                for (const a of ai) drawKart(a.x, a.y, a.angle, a.color, a.color, a.hover, false, false);
+                drawKart(player.x, player.y, player.angle, '#00d4ff', '#ff0066', player.hover, false, false);
+                drawCountdown();
+                countdown -= dt;
+                if (countdown <= -0.5) state = 'racing';
+            } else if (state === 'racing') {
+                raceTime += dt;
+                updatePlayer(dt);
+                updateAI(dt);
+                updatePositions();
+                updateParticles(dt);
+                drawTrack();
+                drawParticles();
+                for (const a of ai) drawKart(a.x, a.y, a.angle, a.color, a.color, a.hover, false, false);
+                drawKart(player.x, player.y, player.angle, '#00d4ff', '#ff0066', player.hover, player.drifting, player.boosting);
+                drawHUD();
+            } else if (state === 'paused') {
+                drawTrack();
+                for (const a of ai) drawKart(a.x, a.y, a.angle, a.color, a.color, a.hover, false, false);
+                drawKart(player.x, player.y, player.angle, '#00d4ff', '#ff0066', player.hover, false, false);
+                drawHUD();
+                drawPaused();
+            } else if (state === 'results') {
+                drawResults();
+            }
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        init();
+        initAI();
+        requestAnimationFrame(gameLoop);
+        
+        console.log('🏎️ Cyber Kart Drift loaded! Controls: W/SPACE=Accelerate, A/D=Steer, SHIFT=Drift, E=Boost, ESC=Pause');
+    </script>
+</body>
+</html>
